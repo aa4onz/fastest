@@ -49,13 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    // 5. Instantiate Global Memory Application States
-    let app_state = Arc::new(Mutex::new(crate::app::state::AppState {
-        token: token.clone(),
-        target_channel_id: target_channel_id.clone(),
-        messages: Vec::new(),
-        input_text: String::new(),
-    }));
+    // 5. Instantiate Global Memory Application States with complete initialization fields
+    let mut initial_state = crate::app::state::AppState::new(token.clone());
+    initial_state.target_channel_id = target_channel_id.clone(); // 🟢 INJECT TARGET LINK
+
+    let app_state = Arc::new(Mutex::new(initial_state));
 
     // 6. Setup Asynchronous Message Pipeline Channels
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
@@ -74,7 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let app_state_clone = Arc::clone(&app_state);
         terminal.draw(|f| {
-            // FIXED: Using f.size() to guarantee support across older ratatui versions
             let size = f.size();
             let chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
@@ -84,45 +81,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ])
                 .split(size);
 
-            // FIXED: Acquire the lock asynchronously outside of block_on structures
-            let state = futures::executor::block_on(app_state_clone.lock());
-            
-            // Layout Pane A: Live Message Stream Feed Log
-            // FIXED: Explicitly pulling ListItem directly from widgets namespace map boundaries
-            let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
-                let status_indicator = match m.status {
-                    models::MessageStatus::Sending => " [...]",
-                    models::MessageStatus::Failed => " [❌]",
-                    models::MessageStatus::Delivered => "",
-                };
-                ratatui::widgets::ListItem::new(format!(
-                    "[{}] <{}>: {}{}",
-                    m.timestamp, m.author, m.content, status_indicator
-                ))
-            }).collect();
+            if let Ok(state) = app_state_clone.try_lock() {
+                let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
+                    let status_indicator = match m.status {
+                        models::MessageStatus::Sending => " [...]",
+                        models::MessageStatus::Failed => " [❌]",
+                        models::MessageStatus::Delivered => "",
+                    };
+                    ratatui::widgets::ListItem::new(format!(
+                        "[{}] <{}>: {}{}",
+                        m.timestamp, m.author, m.content, status_indicator
+                    ))
+                }).collect();
 
-            let msg_list = ratatui::widgets::List::new(msgs)
-                .block(ratatui::widgets::Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
-            
-            // FIXED: Target explicit index chunk regions [0] instead of passing the raw list
-            f.render_widget(msg_list, chunks[0]);
+                let msg_list = ratatui::widgets::List::new(msgs)
+                    .block(ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
+                
+                // 🟢 SAFE REGION ITEM INDEX TARGETING
+                f.render_widget(msg_list, chunks[0]);
 
-            // Layout Pane B: Bottom Input Text Box
-            let input_box = ratatui::widgets::Paragraph::new(state.input_text.as_str())
-                .block(ratatui::widgets::Block::default()
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .title(" Type Chat Message (Press Enter to Send) "));
-            
-            // FIXED: Target explicit index chunk regions [1] instead of passing the raw list
-            f.render_widget(input_box, chunks[1]);
+                let input_box = ratatui::widgets::Paragraph::new(state.input_text.as_str())
+                    .block(ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .title(" Type Chat Message (Press Enter to Send) "));
+                
+                // 🟢 SAFE REGION ITEM INDEX TARGETING
+                f.render_widget(input_box, chunks[1]);
+            }
         })?;
 
         // Process Incoming System Thread Events
         if let Some(event) = event_rx.recv().await {
             let mut state = app_state.lock().await;
-            // FIXED: handle_event targets state correctly
             let should_exit = state.handle_event(event, &event_tx, &http_client).await;
             if should_exit { break; }
         }
