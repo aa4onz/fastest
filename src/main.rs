@@ -49,19 +49,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    // 5. Instantiate Global Memory Application States with complete initialization fields
+    // 5. Instantiate Global Memory Application States
     let mut initial_state = crate::app::state::AppState::new(token.clone());
-    initial_state.target_channel_id = target_channel_id.clone(); // 🟢 INJECT TARGET LINK
+    initial_state.target_channel_id = target_channel_id.clone();
 
     let app_state = Arc::new(Mutex::new(initial_state));
 
     // 6. Setup Asynchronous Message Pipeline Channels
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
 
-    // 7. Instantiate Bare-bones Global HTTP Pool Client
+    // 7. Instantiate Bare-bones Global HTTP Pool Client with Browser Identity Mocking
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
         .pool_max_idle_per_host(10)
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
         .unwrap();
 
@@ -99,7 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .borders(ratatui::widgets::Borders::ALL)
                         .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
                 
-                // 🟢 SAFE REGION ITEM INDEX TARGETING
                 f.render_widget(msg_list, chunks[0]);
 
                 let input_box = ratatui::widgets::Paragraph::new(state.input_text.as_str())
@@ -107,7 +107,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .borders(ratatui::widgets::Borders::ALL)
                         .title(" Type Chat Message (Press Enter to Send) "));
                 
-                // 🟢 SAFE REGION ITEM INDEX TARGETING
                 f.render_widget(input_box, chunks[1]);
             }
         })?;
