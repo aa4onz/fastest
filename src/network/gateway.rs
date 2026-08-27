@@ -1,5 +1,6 @@
 // src/network/gateway.rs
-use crate::app::AppState;
+// FIXED: Adjusted import path signature to look inside submodules
+use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordMessage, GatewayPayload, MessageStatus};
 use chrono::Local;
 use futures_util::{SinkExt, StreamExt};
@@ -30,7 +31,6 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                         let shared_w = Arc::new(Mutex::new(write));
                         let h_write = Arc::clone(&shared_w);
                         
-                        // Spawn background heartbeat daemon thread
                         tokio::spawn(async move {
                             loop {
                                 tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
@@ -39,27 +39,21 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                             }
                         });
 
-                        // Process incoming socket live frames loop
                         let w_tx = event_tx.clone();
                         while let Some(Ok(Message::Text(msg_text))) = read.next().await {
                             if let Ok(pay) = serde_json::from_str::<GatewayPayload>(&msg_text) {
                                 if pay.op == 0 {
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
-                                    // Lock down and stream only the exact target channel matched to your link
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
                                         let nonce = pay.d["nonce"].as_str().unwrap_or("").to_string();
                                         let author_id = pay.d["author"]["id"].as_str().unwrap_or("");
                                         
                                         let state = app_state.lock().await;
                                         let is_dup = state.messages.iter().any(|x| x.nonce == nonce && !nonce.is_empty());
-                                        let my_id = {
-                                            // Optional: If self identity tracking is skipped, allow parsing fallback properties
-                                            "" 
-                                        };
                                         drop(state);
 
-                                        if author_id != my_id || !is_dup {
+                                        if !is_dup {
                                             let _ = w_tx.send(AppEvent::IncomingMessage(DiscordMessage {
                                                 nonce,
                                                 author: pay.d["author"]["username"].as_str().unwrap_or("Unknown").to_string(),
