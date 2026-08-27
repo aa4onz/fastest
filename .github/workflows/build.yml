@@ -1,0 +1,17 @@
+name: Rust Cloud Builder Task
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Compile Single Channel Release Binary
+      run: cargo build --release
+    - uses: actions/upload-artifact@v4
+      with:
+        name: single-channel-discord-client
+        path: target/release/fast_discord_tui.exe
