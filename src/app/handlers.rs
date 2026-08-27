@@ -8,7 +8,10 @@ impl crate::app::state::AppState {
     pub async fn handle_event(&mut self, event: AppEvent, tx: &Sender<AppEvent>, client: &reqwest::Client) -> bool {
         match event {
             AppEvent::IncomingMessage(m) => {
-                if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
+                // FIXED: Force errors starting with 'err-' to always bypass filters and print on screen
+                if m.nonce.starts_with("err-") {
+                    self.messages.push(m);
+                } else if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
                     self.messages.push(m);
                 }
             }
@@ -25,7 +28,7 @@ impl crate::app::state::AppState {
             }
             AppEvent::GatewayClosed => {
                 self.messages.push(DiscordMessage {
-                    nonce: "err".into(),
+                    nonce: "err-close".into(),
                     author: "System".into(),
                     content: "⚠️ WebSocket closed. Reconnecting...".into(),
                     timestamp: Local::now().format("%H:%M:%S").to_string(),
@@ -62,15 +65,48 @@ impl crate::app::state::AppState {
 
         let (token, c, tx) = (self.token.clone(), client.clone(), tx.clone());
         tokio::spawn(async move {
+            // FIXED: Fully formed endpoint URL template targeting the v10 channels rest schema
             let url = format!("https://discord.com{}/messages", cid);
             let p = crate::models::MessagePayload { content: text, nonce: nonce.clone() };
-            if let Ok(r) = c.post(&url).header("Authorization", &token).json(&p).send().await {
-                if r.status().is_success() {
-                    let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: Local::now().format("%H:%M:%S").to_string() }).await;
-                    return;
+            
+            let res = c.post(&url)
+                .header("Authorization", &token)
+                .header("Content-Type", "application/json")
+                .header("Accept", "*/*")
+                .header("Origin", "https://discord.com")
+                .header("X-Discord-Locale", "en-US")
+                .json(&p)
+                .send()
+                .await;
+
+            match res {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: Local::now().format("%H:%M:%S").to_string() }).await;
+                    } else {
+                        let raw_body = resp.text().await.unwrap_or_else(|_| "No payload body details available".to_string());
+                        let _ = tx.send(AppEvent::IncomingMessage(DiscordMessage {
+                            nonce: format!("err-{}", nonce),
+                            author: format!("❌ SERVER REJECT ({})", status),
+                            content: format!("Reason: {}", raw_body.chars().take(80).collect::<String>()),
+                            timestamp: Local::now().format("%H:%M:%S").to_string(),
+                            status: MessageStatus::Failed,
+                        })).await;
+                        let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(AppEvent::IncomingMessage(DiscordMessage {
+                        nonce: format!("err-{}", nonce),
+                        author: "❌ NETWORK ROUTE ERROR".to_string(),
+                        content: format!("Dropped: {}", e),
+                        timestamp: Local::now().format("%H:%M:%S").to_string(),
+                        status: MessageStatus::Failed,
+                    })).await;
+                    let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
                 }
             }
-            let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
         });
     }
 }
