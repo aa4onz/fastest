@@ -1,9 +1,7 @@
 // src/main.rs
-pub mod app;
 pub mod models;
 pub mod network;
 
-use app::state::AppState;
 use models::AppEvent;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -52,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = ratatui::Terminal::new(backend)?;
 
     // 5. Instantiate Global Memory Application States
-    let app_state = Arc::new(Mutex::new(AppState {
+    let app_state = Arc::new(Mutex::new(app::state::AppState {
         token: token.clone(),
         target_channel_id: target_channel_id.clone(),
         messages: Vec::new(),
@@ -104,20 +102,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .block(ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
                     .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
-            f.render_widget(msg_list, chunks[0]);
+            f.render_widget(msg_list, chunks);
 
             // Layout Pane B: Bottom Input Text Box
             let input_box = ratatui::widgets::Paragraph::new(state.input_text.as_str())
                 .block(ratatui::widgets::Block::default()
                     .borders(ratatui::widgets::Borders::ALL)
                     .title(" Type Chat Message (Press Enter to Send) "));
-            f.render_widget(input_box, chunks[1]);
+            f.render_widget(input_box, chunks);
         })?;
 
         // Process Incoming System Thread Events
         if let Some(event) = event_rx.recv().await {
             let mut state = app_state.lock().await;
-            // Handle actions like input key traps, exits, and text formatting calculations
             let should_exit = state.handle_event(event, &event_tx, &http_client).await;
             if should_exit { break; }
         }
@@ -133,8 +130,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Simple AppState struct layout definition used by main
-namespace app {
+// FIXED: Changed "namespace" keyword to valid Rust "mod" syntax structure
+mod app {
     pub mod state {
         pub struct AppState {
             pub token: String,
