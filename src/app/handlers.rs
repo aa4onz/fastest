@@ -8,7 +8,6 @@ impl crate::app::state::AppState {
     pub async fn handle_event(&mut self, event: AppEvent, tx: &Sender<AppEvent>, client: &reqwest::Client) -> bool {
         match event {
             AppEvent::IncomingMessage(m) => {
-                // Drop duplicate echoes if the optimistic TUI message matches the incoming gateway packet nonce token
                 if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
                     self.messages.push(m);
                 }
@@ -34,7 +33,6 @@ impl crate::app::state::AppState {
                 });
             }
             AppEvent::Terminal(Event::Key(k)) if k.kind == crossterm::event::KeyEventKind::Press => {
-                // Global Emergency Exit Key Trigger mapping: Ctrl + C
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) { return true; }
                 
                 match k.code {
@@ -54,7 +52,6 @@ impl crate::app::state::AppState {
         let cid = self.target_channel_id.clone();
         let nonce = format!("n-{}", Local::now().timestamp_nanos_opt().unwrap_or(0));
 
-        // OPTIMISTIC UI: Instantly flash your typed message straight to the display screen logs
         self.messages.push(DiscordMessage {
             nonce: nonce.clone(),
             author: "You".to_string(),
@@ -67,8 +64,6 @@ impl crate::app::state::AppState {
         tokio::spawn(async move {
             let url = format!("https://discord.com{}/messages", cid);
             let p = crate::models::MessagePayload { content: text, nonce: nonce.clone() };
-            
-            // Standard light weight clean HTTP payload connection execution frame
             if let Ok(r) = c.post(&url).header("Authorization", &token).json(&p).send().await {
                 if r.status().is_success() {
                     let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: Local::now().format("%H:%M:%S").to_string() }).await;
