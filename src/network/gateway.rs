@@ -1,5 +1,4 @@
 // src/network/gateway.rs
-// FIXED: Adjusted import path signature to look inside submodules
 use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordMessage, GatewayPayload, MessageStatus};
 use chrono::Local;
@@ -47,8 +46,8 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                     
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
                                         let nonce = pay.d["nonce"].as_str().unwrap_or("").to_string();
-                                        let author_id = pay.d["author"]["id"].as_str().unwrap_or("");
                                         
+                                        // FIXED: Completely removed the unused author_id variable declaration line
                                         let state = app_state.lock().await;
                                         let is_dup = state.messages.iter().any(|x| x.nonce == nonce && !nonce.is_empty());
                                         drop(state);
