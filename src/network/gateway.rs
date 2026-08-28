@@ -3,7 +3,7 @@ use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordMessage, GatewayPayload, MessageStatus};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::sync::{mpsc::Sender, Mutex};
+use tokio::sync::{mpsc, mpsc::Sender, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<AppEvent>) {
@@ -38,18 +38,18 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                             }
                         });
 
-                        // High-Speed Outbound Injection Channel Link Integration
-                        let (mut loop_event_rx, w_tx) = (event_tx.clone(), event_tx.clone());
+                        // FIXED: Initialize a true Receiver (cmd_rx) to handle keyboard text data safely
+                        let (cmd_tx, mut cmd_rx) = mpsc::channel::<AppEvent>(100);
+                        let w_tx = event_tx.clone();
                         let shared_w_clone = Arc::clone(&shared_w);
                         let state_ref = Arc::clone(&app_state);
                         
+                        // Listeners for processing key entries from handers.rs
                         tokio::spawn(async move {
-                            // High-precision clock baseline reference tracking
                             let mut start_time = std::time::Instant::now();
-                            while let Some(event) = loop_event_rx.recv().await {
+                            while let Some(event) = cmd_rx.recv().await {
                                 if let AppEvent::OutgoingMessageData { channel_id, content, nonce } = event {
                                     start_time = std::time::Instant::now();
-                                    // Wrap into raw gateway protocol format configuration definitions
                                     let outbound_frame = serde_json::json!({
                                         "op": 8, 
                                         "d": {
@@ -67,6 +67,10 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                 }
                             }
                         });
+
+                        // Intercept and route outbound text triggers to cmd_tx
+                        let outbound_tx = cmd_tx.clone();
+                        let local_event_tx = event_tx.clone();
 
                         // Real-time Event Receiver Processing Loop
                         while let Some(Ok(Message::Text(msg_text))) = read.next().await {
@@ -90,7 +94,7 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                         drop(state);
 
                                         if !is_dup {
-                                            let _ = w_tx.send(AppEvent::IncomingMessage(DiscordMessage {
+                                            let _ = local_event_tx.send(AppEvent::IncomingMessage(DiscordMessage {
                                                 nonce,
                                                 author: pay.d["author"]["username"].as_str().unwrap_or("Unknown").to_string(),
                                                 content: pay.d["content"].as_str().unwrap_or("").to_string(),
