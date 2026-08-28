@@ -16,8 +16,6 @@ pub struct DiscordMessage {
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     IncomingMessage(DiscordMessage),
-    // High-Speed Action: Used to transmit message text over the live WebSocket channel
-    OutgoingMessageData { channel_id: String, content: String, nonce: String },
     MessageSent { nonce: String, timestamp: String },
     MessageFailed { nonce: String },
     Terminal(crossterm::event::Event),
