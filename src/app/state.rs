@@ -1,11 +1,14 @@
 // src/app/state.rs
 use crate::models::DiscordMessage;
+use std::collections::HashMap;
+use std::time::Instant;
 
 pub struct AppState {
     pub token: String,
     pub target_channel_id: String,
     pub messages: Vec<DiscordMessage>,
     pub input_text: String,
+    pub typing_users: HashMap<String, Instant>,
 }
 
 impl AppState {
@@ -15,6 +18,7 @@ impl AppState {
             target_channel_id: String::new(),
             messages: Vec::new(),
             input_text: String::new(),
+            typing_users: HashMap::new(),
         }
     }
 }
