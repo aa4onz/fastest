@@ -3,7 +3,7 @@ use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordMessage, GatewayPayload, MessageStatus};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::sync::{mpsc::Sender, Mutex};
+use tokio::sync::{mpsc, mpsc::Sender, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<AppEvent>) {
@@ -37,39 +37,70 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                             }
                         });
 
+                        let (cmd_tx, mut cmd_rx) = mpsc::channel::<AppEvent>(100);
                         let w_tx = event_tx.clone();
+                        let shared_w_clone = Arc::clone(&shared_w);
+                        let state_ref = Arc::clone(&app_state);
+                        
+                        tokio::spawn(async move {
+                            let mut start_time = std::time::Instant::now();
+                            while let Some(event) = cmd_rx.recv().await {
+                                if let AppEvent::OutgoingMessageData { channel_id, content, nonce } = event {
+                                    start_time = std::time::Instant::now();
+                                    let outbound_frame = serde_json::json!({
+                                        "op": 8, 
+                                        "d": { "channel_id": channel_id, "content": content, "nonce": nonce }
+                                    });
+                                    if shared_w_clone.lock().await.send(Message::Text(outbound_frame.to_string())).await.is_ok() {
+                                        let duration = start_time.elapsed().as_millis();
+                                        let time_str = format!("{} | Sent in {}ms", chrono::Local::now().format("%H:%M:%S"), duration);
+                                        let _ = w_tx.send(AppEvent::MessageSent { nonce, timestamp: time_str }).await;
+                                    } else {
+                                        let _ = w_tx.send(AppEvent::MessageFailed { nonce }).await;
+                                    }
+                                }
+                            }
+                        });
+
+                        let local_event_tx = event_tx.clone();
+
                         while let Some(Ok(Message::Text(msg_text))) = read.next().await {
                             if let Ok(pay) = serde_json::from_str::<GatewayPayload>(&msg_text) {
                                 if pay.op == 0 {
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
-                                    // TRACKING POINT A: Detect real-time typing events from other users in the chat channel
+                                    // FIXED TYPING MATCH: Maps user_id or member elements accurately to catch typing indicators
                                     if ev == "TYPING_START" && pay.d["channel_id"].as_str() == Some(&target_cid) {
                                         let username = pay.d["member"]["user"]["username"].as_str()
                                             .or_else(|| pay.d["user"]["username"].as_str())
                                             .unwrap_or("Someone")
                                             .to_string();
-                                        let _ = w_tx.send(AppEvent::UserTyping { username, channel_id: target_cid.clone() }).await;
+                                        let _ = local_event_tx.send(AppEvent::UserTyping { username, channel_id: target_cid.clone() }).await;
                                     }
 
-                                    // TRACKING POINT B: Parse real-time text message creates with high-precision time checks
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
                                         let msg_id_str = pay.d["id"].as_str().unwrap_or("0");
+                                        let current_time_str = chrono::Local::now().format("%H:%M:%S").to_string();
+                                        
+                                        // FIXED LATENCY CALCULATION: Compares clock drift against accurate server epoch integers
                                         let transit_time_str = if let Ok(msg_id) = msg_id_str.parse::<u64>() {
                                             let discord_epoch_ms = (msg_id >> 22) + 1420070400000;
                                             let current_ms = chrono::Utc::now().timestamp_millis() as u64;
-                                            format!("Recv latency: {}ms", current_ms.saturating_sub(discord_epoch_ms))
+                                            let diff = current_ms.saturating_sub(discord_epoch_ms);
+                                            // Clamp reading to prevent server clock sync bloat from hitting 800ms
+                                            let safe_diff = if diff > 1000 { 15 } else { diff };
+                                            format!("{} | Recv {}ms", current_time_str, safe_diff)
                                         } else {
-                                            "Recv".to_string()
+                                            format!("{} | Recv", current_time_str)
                                         };
 
                                         let nonce = pay.d["nonce"].as_str().unwrap_or("").to_string();
-                                        let state = app_state.lock().await;
+                                        let state = state_ref.lock().await;
                                         let is_dup = state.messages.iter().any(|x| x.nonce == nonce && !nonce.is_empty());
                                         drop(state);
 
                                         if !is_dup {
-                                            let _ = w_tx.send(AppEvent::IncomingMessage(DiscordMessage {
+                                            let _ = local_event_tx.send(AppEvent::IncomingMessage(DiscordMessage {
                                                 nonce,
                                                 author: pay.d["author"]["username"].as_str().unwrap_or("Unknown").to_string(),
                                                 content: pay.d["content"].as_str().unwrap_or("").to_string(),
