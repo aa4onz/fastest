@@ -57,7 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let app_state_clone = Arc::clone(&app_state);
         
-        // 🟢 PRE-RENDER PHASE: Dynamically force list state focus index step to select the last entry row
         {
             let mut state = app_state_clone.lock().await;
             let len = state.messages.len();
@@ -68,17 +67,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         terminal.draw(|f| {
             let size = f.size();
+            
+            // 🟢 FIXED CONSTRAINT REGIONS: Split layout cleanly with explicit border boundaries
             let chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
-                    ratatui::layout::Constraint::Min(3),
-                    ratatui::layout::Constraint::Length(1), // Live typing bar line
-                    ratatui::layout::Constraint::Length(1), // Plain input row
+                    ratatui::layout::Constraint::Min(3),    // Pane A: Chat feed logs window
+                    ratatui::layout::Constraint::Length(3),  // Pane B: Heavy Bordered input box container field
                 ])
                 .split(size);
 
             if let Ok(mut state) = app_state_clone.try_lock() {
-                // 1. Render Chat layout matching your template image precisely
+                // 1. Map messages list items with color highlights
                 let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
                     use ratatui::style::{Color, Style};
                     use ratatui::text::{Line, Span};
@@ -94,7 +94,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         models::MessageStatus::Delivered => "",
                     };
 
-                    // FIXED LAYOUT: Injects your authentic current wall clock time AND latency telemetry side-by-side inside the layout
                     let header_line = Line::from(vec![
                         Span::styled(format!("{}", m.author), header_style),
                         Span::raw(" "),
@@ -108,13 +107,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ratatui::widgets::ListItem::new(vec![header_line, content_line])
                 }).collect();
 
+                // 🟢 ADDED BORDERS: Created a solid border wrapper frame around the chat viewport area
                 let msg_list = ratatui::widgets::List::new(msgs)
-                    .block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::NONE));
+                    .block(ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
                 
-                // FIXED AUTO-SCROLL: Pass the list state reference wrapper memory handle into your stateful widget viewport layout
                 f.render_stateful_widget(msg_list, chunks[0], &mut state.list_state);
 
-                // 2. Render Dynamic Typing Information Bar
+                // 2. Compute dynamic multi-user typing status strings
                 let current_time = std::time::Instant::now();
                 let typing_names: Vec<String> = state.typing_users
                     .iter()
@@ -127,22 +128,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .collect();
 
-                let typing_text = if typing_names.is_empty() {
+                // 🟢 TYPING EMBED POSITION: Create a compact tracking flag header block
+                let typing_prefix = if typing_names.is_empty() {
                     "".to_string()
                 } else if typing_names.len() == 1 {
-                    format!("💬 {} is typing...", typing_names[0])
+                    format!("(💬 {} typing...) ", typing_names[0])
                 } else {
-                    "💬 Multiple users are typing...".to_string()
+                    "(💬 Users typing...) ".to_string()
                 };
 
-                let typing_bar = ratatui::widgets::Paragraph::new(typing_text)
-                    .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
-                f.render_widget(typing_bar, chunks[1]);
-
-                // 3. Render Minimalistic Chat Input Box Line Layout
-                let input_str = format!("> {}", state.input_text);
-                let input_box = ratatui::widgets::Paragraph::new(input_str);
-                f.render_widget(input_box, chunks[2]);
+                // 🟢 OVERLAP PREVENTION: Merge typing indicator and prompt directly side-by-side
+                let input_str = format!("{}> {}", typing_prefix, state.input_text);
+                
+                // 🟢 ADDED BORDERS: Creates a matching dedicated structural boundary pane around text entry lanes
+                let input_box = ratatui::widgets::Paragraph::new(input_str)
+                    .block(ratatui::widgets::Block::default()
+                        .borders(ratatui::widgets::Borders::ALL)
+                        .title(" Type Chat Message (Press Enter to Send) "));
+                
+                f.render_widget(input_box, chunks[1]);
             }
         })?;
 
@@ -153,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    crossterm::terminal::disable_raw_mode()?;
+    crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(terminal.backend_mut(), crossterm::terminal::LeaveAlternateScreen, crossterm::cursor::Show)?;
     Ok(())
 }
