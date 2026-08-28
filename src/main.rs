@@ -56,6 +56,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let app_state_clone = Arc::clone(&app_state);
+        
+        // 🟢 PRE-RENDER PHASE: Dynamically force list state focus index step to select the last entry row
+        {
+            let mut state = app_state_clone.lock().await;
+            let len = state.messages.len();
+            if len > 0 {
+                state.list_state.select(Some(len - 1));
+            }
+        }
+
         terminal.draw(|f| {
             let size = f.size();
             let chunks = ratatui::layout::Layout::default()
@@ -67,8 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ])
                 .split(size);
 
-            if let Ok(state) = app_state_clone.try_lock() {
-                // Render Chat layout precisely matching your template image
+            if let Ok(mut state) = app_state_clone.try_lock() {
+                // 1. Render Chat layout matching your template image precisely
                 let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
                     use ratatui::style::{Color, Style};
                     use ratatui::text::{Line, Span};
@@ -84,11 +94,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         models::MessageStatus::Delivered => "",
                     };
 
-                    // MATCHED UI: Name, colored timestamp, and performance ms metrics side-by-side
+                    // FIXED LAYOUT: Injects your authentic current wall clock time AND latency telemetry side-by-side inside the layout
                     let header_line = Line::from(vec![
                         Span::styled(format!("{}", m.author), header_style),
                         Span::raw(" "),
-                        Span::styled(format!("[{}{}]", m.timestamp, status_indicator), time_style),
+                        Span::styled(format!("[{} {}]", m.timestamp, status_indicator), time_style),
                     ]);
 
                     let content_line = Line::from(vec![
@@ -101,9 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let msg_list = ratatui::widgets::List::new(msgs)
                     .block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::NONE));
                 
-                f.render_widget(msg_list, chunks[0]);
+                // FIXED AUTO-SCROLL: Pass the list state reference wrapper memory handle into your stateful widget viewport layout
+                f.render_stateful_widget(msg_list, chunks[0], &mut state.list_state);
 
-                // Render Dynamic Typing Information Bar
+                // 2. Render Dynamic Typing Information Bar
                 let current_time = std::time::Instant::now();
                 let typing_names: Vec<String> = state.typing_users
                     .iter()
@@ -128,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
                 f.render_widget(typing_bar, chunks[1]);
 
-                // MATCHED UI: Plain text line input template with a simple marker arrow
+                // 3. Render Minimalistic Chat Input Box Line Layout
                 let input_str = format!("> {}", state.input_text);
                 let input_box = ratatui::widgets::Paragraph::new(input_str);
                 f.render_widget(input_box, chunks[2]);
