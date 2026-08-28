@@ -1,7 +1,6 @@
 // src/network/gateway.rs
 use crate::app::state::AppState;
 use crate::models::{AppEvent, DiscordMessage, GatewayPayload, MessageStatus};
-use chrono::Local;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex};
@@ -45,9 +44,17 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
+                                        // Performance Tracker: Calculate Socket Transit Latency from Snowflake ID
+                                        let msg_id_str = pay.d["id"].as_str().unwrap_or("0");
+                                        let transit_time_str = if let Ok(msg_id) = msg_id_str.parse::<u64>() {
+                                            let discord_epoch_ms = (msg_id >> 22) + 1420070400000;
+                                            let current_ms = chrono::Utc::now().timestamp_millis() as u64;
+                                            format!("Recv latency: {}ms", current_ms.saturating_sub(discord_epoch_ms))
+                                        } else {
+                                            "Recv".to_string()
+                                        };
+
                                         let nonce = pay.d["nonce"].as_str().unwrap_or("").to_string();
-                                        
-                                        // FIXED: Completely removed the unused author_id variable declaration line
                                         let state = app_state.lock().await;
                                         let is_dup = state.messages.iter().any(|x| x.nonce == nonce && !nonce.is_empty());
                                         drop(state);
@@ -57,7 +64,7 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                                 nonce,
                                                 author: pay.d["author"]["username"].as_str().unwrap_or("Unknown").to_string(),
                                                 content: pay.d["content"].as_str().unwrap_or("").to_string(),
-                                                timestamp: Local::now().format("%H:%M:%S").to_string(),
+                                                timestamp: transit_time_str,
                                                 status: MessageStatus::Delivered,
                                             })).await;
                                         }
