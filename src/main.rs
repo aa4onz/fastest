@@ -96,13 +96,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let author_color = if is_me { Color::Blue } else { Color::Green };
                     let header_style = Style::default().fg(author_color);
 
+                    // 🟢 FIXED: Chat content stays Gray color while Sending, turns White when Delivered
+                    let content_color = match m.status {
+                        models::MessageStatus::Sending => Color::DarkGray,
+                        models::MessageStatus::Failed => Color::Red,
+                        models::MessageStatus::Delivered => Color::White,
+                    };
+
                     let status_indicator = match m.status {
                         models::MessageStatus::Sending => " [...]",
                         models::MessageStatus::Failed => " [❌]",
                         models::MessageStatus::Delivered => "",
                     };
 
-                    // MATCHED UI: Timestamp brackets style now matches the username color palette perfectly
                     let header_line = Line::from(vec![
                         Span::styled(format!("{}", m.author), header_style),
                         Span::raw(" "),
@@ -110,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ]);
 
                     let content_line = Line::from(vec![
-                        Span::raw(format!("  {}", m.content))
+                        Span::styled(format!("  {}", m.content), Style::default().fg(content_color))
                     ]);
 
                     ratatui::widgets::ListItem::new(vec![header_line, content_line])
@@ -123,11 +129,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 f.render_stateful_widget(msg_list, vertical_chunks[0], &mut state.list_state);
 
-                // MATCHED UI: Prompt prefix is normal white/gray but input text string is forced to dark gray before sending
+                // 🟢 FIXED: Active Textbox content is now styled in bright Yellow color for sharp focus
                 let prompt_span = ratatui::text::Span::raw("> ");
                 let text_span = ratatui::text::Span::styled(
                     state.input_text.as_str(),
-                    ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray)
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Yellow)
                 );
                 let input_line = ratatui::text::Line::from(vec![prompt_span, text_span]);
 
