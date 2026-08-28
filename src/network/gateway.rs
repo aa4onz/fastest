@@ -43,8 +43,17 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                 if pay.op == 0 {
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
+                                    // TRACKING POINT A: Detect real-time typing events from other users in the chat channel
+                                    if ev == "TYPING_START" && pay.d["channel_id"].as_str() == Some(&target_cid) {
+                                        let username = pay.d["member"]["user"]["username"].as_str()
+                                            .or_else(|| pay.d["user"]["username"].as_str())
+                                            .unwrap_or("Someone")
+                                            .to_string();
+                                        let _ = w_tx.send(AppEvent::UserTyping { username, channel_id: target_cid.clone() }).await;
+                                    }
+
+                                    // TRACKING POINT B: Parse real-time text message creates with high-precision time checks
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
-                                        // Performance Tracker: Calculate Socket Transit Latency from Snowflake ID
                                         let msg_id_str = pay.d["id"].as_str().unwrap_or("0");
                                         let transit_time_str = if let Ok(msg_id) = msg_id_str.parse::<u64>() {
                                             let discord_epoch_ms = (msg_id >> 22) + 1420070400000;
