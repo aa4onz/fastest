@@ -8,7 +8,6 @@ impl crate::app::state::AppState {
     pub async fn handle_event(&mut self, event: AppEvent, tx: &Sender<AppEvent>, client: &reqwest::Client) -> bool {
         match event {
             AppEvent::IncomingMessage(m) => {
-                // FIXED: Force errors starting with 'err-' to always bypass filters and print on screen
                 if m.nonce.starts_with("err-") {
                     self.messages.push(m);
                 } else if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
@@ -18,6 +17,7 @@ impl crate::app::state::AppState {
             AppEvent::MessageSent { nonce, timestamp } => {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Delivered;
+                    // FIXED: Display the exact transmission RTT directly in the chat layout line
                     m.timestamp = timestamp;
                 }
             }
@@ -54,18 +54,20 @@ impl crate::app::state::AppState {
         let text = std::mem::take(&mut self.input_text);
         let cid = self.target_channel_id.clone();
         let nonce = format!("n-{}", Local::now().timestamp_nanos_opt().unwrap_or(0));
+        
+        // Performance Tracker: Store high-precision start timestamp
+        let start_time = std::time::Instant::now();
 
         self.messages.push(DiscordMessage {
             nonce: nonce.clone(),
             author: "You".to_string(),
             content: text.clone(),
-            timestamp: Local::now().format("%H:%M:%S").to_string(),
+            timestamp: "...".to_string(),
             status: MessageStatus::Sending,
         });
 
         let (token, c, tx) = (self.token.clone(), client.clone(), tx.clone());
         tokio::spawn(async move {
-            // FIXED: Fully formed endpoint URL template targeting the v10 channels rest schema
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             let p = crate::models::MessagePayload { content: text, nonce: nonce.clone() };
             
@@ -81,14 +83,16 @@ impl crate::app::state::AppState {
 
             match res {
                 Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: Local::now().format("%H:%M:%S").to_string() }).await;
+                    if resp.status().is_success() {
+                        // Performance Tracker: Calculate total round-trip sending latency
+                        let duration = start_time.elapsed().as_millis();
+                        let time_str = format!("Sent in {}ms", duration);
+                        let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: time_str }).await;
                     } else {
                         let raw_body = resp.text().await.unwrap_or_else(|_| "No payload body details available".to_string());
                         let _ = tx.send(AppEvent::IncomingMessage(DiscordMessage {
                             nonce: format!("err-{}", nonce),
-                            author: format!("❌ SERVER REJECT ({})", status),
+                            author: "❌ SERVER REJECT".to_string(),
                             content: format!("Reason: {}", raw_body.chars().take(80).collect::<String>()),
                             timestamp: Local::now().format("%H:%M:%S").to_string(),
                             status: MessageStatus::Failed,
