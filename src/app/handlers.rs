@@ -11,14 +11,19 @@ impl crate::app::state::AppState {
                 if m.nonce.starts_with("err-") {
                     self.messages.push(m);
                 } else if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
+                    self.typing_users.remove(&m.author);
                     self.messages.push(m);
+                }
+            }
+            AppEvent::UserTyping { username, channel_id } => {
+                if channel_id == self.target_channel_id {
+                    self.typing_users.insert(username, std::time::Instant::now());
                 }
             }
             AppEvent::MessageSent { nonce, timestamp } => {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Delivered;
-                    // FIXED: Display the exact transmission RTT directly in the chat layout line
-                    m.timestamp = timestamp;
+                    m.timestamp = timestamp; // Injects benchmark time (e.g. Sent in 45ms)
                 }
             }
             AppEvent::MessageFailed { nonce } => {
@@ -38,6 +43,9 @@ impl crate::app::state::AppState {
             AppEvent::Terminal(Event::Key(k)) if k.kind == crossterm::event::KeyEventKind::Press => {
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) { return true; }
                 
+                // Triggers out-bound typing activity update task to Discord
+                self.trigger_outbound_typing(client);
+
                 match k.code {
                     KeyCode::Char(c) => self.input_text.push(c),
                     KeyCode::Backspace => { self.input_text.pop(); }
@@ -50,12 +58,34 @@ impl crate::app::state::AppState {
         false
     }
 
+    fn trigger_outbound_typing(&mut self, client: &reqwest::Client) {
+        static mut LAST_TYPING_TIME: Option<std::time::Instant> = None;
+        unsafe {
+            if let Some(last) = LAST_TYPING_TIME {
+                if last.elapsed().as_secs() < 4 { return; }
+            }
+            LAST_TYPING_TIME = Some(std::time::Instant::now());
+        }
+
+        let cid = self.target_channel_id.clone();
+        let token = self.token.clone();
+        let c = client.clone();
+
+        tokio::spawn(async move {
+            let url = format!("https://discord.com/api/v10/channels/{}/typing", cid);
+            let _ = c.post(&url)
+                .header("Authorization", &token)
+                .header("Content-Length", "0")
+                .send()
+                .await;
+        });
+    }
+
     fn send_chat(&mut self, tx: &Sender<AppEvent>, client: &reqwest::Client) {
         let text = std::mem::take(&mut self.input_text);
         let cid = self.target_channel_id.clone();
         let nonce = format!("n-{}", Local::now().timestamp_nanos_opt().unwrap_or(0));
         
-        // Performance Tracker: Store high-precision start timestamp
         let start_time = std::time::Instant::now();
 
         self.messages.push(DiscordMessage {
@@ -81,36 +111,14 @@ impl crate::app::state::AppState {
                 .send()
                 .await;
 
-            match res {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        // Performance Tracker: Calculate total round-trip sending latency
-                        let duration = start_time.elapsed().as_millis();
-                        let time_str = format!("Sent in {}ms", duration);
-                        let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: time_str }).await;
-                    } else {
-                        let raw_body = resp.text().await.unwrap_or_else(|_| "No payload body details available".to_string());
-                        let _ = tx.send(AppEvent::IncomingMessage(DiscordMessage {
-                            nonce: format!("err-{}", nonce),
-                            author: "❌ SERVER REJECT".to_string(),
-                            content: format!("Reason: {}", raw_body.chars().take(80).collect::<String>()),
-                            timestamp: Local::now().format("%H:%M:%S").to_string(),
-                            status: MessageStatus::Failed,
-                        })).await;
-                        let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AppEvent::IncomingMessage(DiscordMessage {
-                        nonce: format!("err-{}", nonce),
-                        author: "❌ NETWORK ROUTE ERROR".to_string(),
-                        content: format!("Dropped: {}", e),
-                        timestamp: Local::now().format("%H:%M:%S").to_string(),
-                        status: MessageStatus::Failed,
-                    })).await;
-                    let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
+            if let Ok(resp) = res {
+                if resp.status().is_success() {
+                    let duration = start_time.elapsed().as_millis();
+                    let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: format!("Sent in {}ms", duration) }).await;
+                    return;
                 }
             }
+            let _ = tx.send(AppEvent::MessageFailed { nonce }).await;
         });
     }
 }
