@@ -23,7 +23,7 @@ impl crate::app::state::AppState {
             AppEvent::MessageSent { nonce, timestamp } => {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Delivered;
-                    m.timestamp = timestamp; // Injects benchmark time (e.g. Sent in 45ms)
+                    m.timestamp = timestamp;
                 }
             }
             AppEvent::MessageFailed { nonce } => {
@@ -43,7 +43,6 @@ impl crate::app::state::AppState {
             AppEvent::Terminal(Event::Key(k)) if k.kind == crossterm::event::KeyEventKind::Press => {
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) { return true; }
                 
-                // Triggers out-bound typing activity update task to Discord
                 self.trigger_outbound_typing(client);
 
                 match k.code {
@@ -87,12 +86,13 @@ impl crate::app::state::AppState {
         let nonce = format!("n-{}", Local::now().timestamp_nanos_opt().unwrap_or(0));
         
         let start_time = std::time::Instant::now();
+        let current_time_str = Local::now().format("%H:%M:%S").to_string();
 
         self.messages.push(DiscordMessage {
             nonce: nonce.clone(),
             author: "You".to_string(),
             content: text.clone(),
-            timestamp: "...".to_string(),
+            timestamp: format!("{} | ...", current_time_str),
             status: MessageStatus::Sending,
         });
 
@@ -114,7 +114,8 @@ impl crate::app::state::AppState {
             if let Ok(resp) = res {
                 if resp.status().is_success() {
                     let duration = start_time.elapsed().as_millis();
-                    let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: format!("Sent in {}ms", duration) }).await;
+                    let combined_time_string = format!("{} | Sent in {}ms", Local::now().format("%H:%M:%S"), duration);
+                    let _ = tx.send(AppEvent::MessageSent { nonce, timestamp: combined_time_string }).await;
                     return;
                 }
             }
