@@ -29,7 +29,6 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                         let shared_w = Arc::new(Mutex::new(write));
                         let h_write = Arc::clone(&shared_w);
                         
-                        // Heartbeat Daemon Thread Task
                         tokio::spawn(async move {
                             loop {
                                 tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
@@ -41,34 +40,20 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                         let w_tx = event_tx.clone();
                         let state_ref = Arc::clone(&app_state);
 
-                        // Real-time Event Receiver Processing Loop
                         while let Some(Ok(Message::Text(msg_text))) = read.next().await {
                             if let Ok(pay) = serde_json::from_str::<GatewayPayload>(&msg_text) {
                                 if pay.op == 0 {
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
-                                    // Detect real-time typing events from other users in the chat channel
-                                    if ev == "TYPING_START" && pay.d["channel_id"].as_str() == Some(&target_cid) {
-                                        let username = pay.d["member"]["user"]["username"].as_str()
-                                            .or_else(|| pay.d["user"]["username"].as_str())
-                                            .unwrap_or("Someone")
-                                            .to_string();
-                                        let _ = w_tx.send(AppEvent::UserTyping { username, channel_id: target_cid.clone() }).await;
-                                    }
-
-                                    // Parse real-time text message creates with high-precision time checks
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
                                         let msg_id_str = pay.d["id"].as_str().unwrap_or("0");
                                         let current_time_str = chrono::Local::now().format("%H:%M:%S").to_string();
                                         
-                                        // Compares clock drift against accurate server epoch integers
                                         let transit_time_str = if let Ok(msg_id) = msg_id_str.parse::<u64>() {
                                             let discord_epoch_ms = (msg_id >> 22) + 1420070400000;
                                             let current_ms = chrono::Utc::now().timestamp_millis() as u64;
                                             let diff = current_ms.saturating_sub(discord_epoch_ms);
-                                            // Clamp reading to prevent server clock sync bloat from hitting 800ms
-                                            let safe_diff = if diff > 1000 { 15 } else { diff };
-                                            format!("{} | Recv {}ms", current_time_str, safe_diff)
+                                            format!("{} | Recv {}ms", current_time_str, diff)
                                         } else {
                                             format!("{} | Recv", current_time_str)
                                         };
