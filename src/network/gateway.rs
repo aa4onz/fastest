@@ -29,6 +29,7 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                         let shared_w = Arc::new(Mutex::new(write));
                         let h_write = Arc::clone(&shared_w);
                         
+                        // Heartbeat Daemon Thread Task
                         tokio::spawn(async move {
                             loop {
                                 tokio::time::sleep(std::time::Duration::from_millis(interval)).await;
@@ -37,14 +38,43 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                             }
                         });
 
-                        let w_tx = event_tx.clone();
+                        // High-Speed Outbound Injection Channel Link Integration
+                        let (mut loop_event_rx, w_tx) = (event_tx.clone(), event_tx.clone());
+                        let shared_w_clone = Arc::clone(&shared_w);
+                        let state_ref = Arc::clone(&app_state);
+                        
+                        tokio::spawn(async move {
+                            // High-precision clock baseline reference tracking
+                            let mut start_time = std::time::Instant::now();
+                            while let Some(event) = loop_event_rx.recv().await {
+                                if let AppEvent::OutgoingMessageData { channel_id, content, nonce } = event {
+                                    start_time = std::time::Instant::now();
+                                    // Wrap into raw gateway protocol format configuration definitions
+                                    let outbound_frame = serde_json::json!({
+                                        "op": 8, 
+                                        "d": {
+                                            "channel_id": channel_id,
+                                            "content": content,
+                                            "nonce": nonce
+                                        }
+                                    });
+                                    if shared_w_clone.lock().await.send(Message::Text(outbound_frame.to_string())).await.is_ok() {
+                                        let duration = start_time.elapsed().as_millis();
+                                        let _ = w_tx.send(AppEvent::MessageSent { nonce, timestamp: format!("Sent in {}ms", duration) }).await;
+                                    } else {
+                                        let _ = w_tx.send(AppEvent::MessageFailed { nonce }).await;
+                                    }
+                                }
+                            }
+                        });
+
+                        // Real-time Event Receiver Processing Loop
                         while let Some(Ok(Message::Text(msg_text))) = read.next().await {
                             if let Ok(pay) = serde_json::from_str::<GatewayPayload>(&msg_text) {
                                 if pay.op == 0 {
                                     let ev = pay.t.as_deref().unwrap_or("");
                                     
                                     if ev == "MESSAGE_CREATE" && pay.d["channel_id"].as_str() == Some(&target_cid) {
-                                        // Performance Tracker: Calculate Socket Transit Latency from Snowflake ID
                                         let msg_id_str = pay.d["id"].as_str().unwrap_or("0");
                                         let transit_time_str = if let Ok(msg_id) = msg_id_str.parse::<u64>() {
                                             let discord_epoch_ms = (msg_id >> 22) + 1420070400000;
@@ -55,7 +85,7 @@ pub async fn run_gateway_loop(app_state: Arc<Mutex<AppState>>, event_tx: Sender<
                                         };
 
                                         let nonce = pay.d["nonce"].as_str().unwrap_or("").to_string();
-                                        let state = app_state.lock().await;
+                                        let state = state_ref.lock().await;
                                         let is_dup = state.messages.iter().any(|x| x.nonce == nonce && !nonce.is_empty());
                                         drop(state);
 
