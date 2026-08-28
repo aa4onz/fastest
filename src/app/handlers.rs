@@ -66,7 +66,7 @@ impl crate::app::state::AppState {
         let (token, c, tx) = (self.token.clone(), client.clone(), tx.clone());
         tokio::spawn(async move {
             // FIXED: Fully formed endpoint URL template targeting the v10 channels rest schema
-            let url = format!("https://discord.com{}/messages", cid);
+            let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             let p = crate::models::MessagePayload { content: text, nonce: nonce.clone() };
             
             let res = c.post(&url)
