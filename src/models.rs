@@ -16,6 +16,7 @@ pub struct DiscordMessage {
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     IncomingMessage(DiscordMessage),
+    UserTyping { username: String, channel_id: String },
     MessageSent { nonce: String, timestamp: String },
     MessageFailed { nonce: String },
     Terminal(crossterm::event::Event),
