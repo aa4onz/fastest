@@ -62,36 +62,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
                     ratatui::layout::Constraint::Min(3),
-                    ratatui::layout::Constraint::Length(3),
+                    ratatui::layout::Constraint::Length(1), // Live typing bar line
+                    ratatui::layout::Constraint::Length(1), // Plain input row
                 ])
                 .split(size);
 
             if let Ok(state) = app_state_clone.try_lock() {
+                // Render Chat layout precisely matching your template image
                 let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
+                    use ratatui::style::{Color, Style};
+                    use ratatui::text::{Line, Span};
+
+                    let is_me = m.author == "You";
+                    let author_color = if is_me { Color::Blue } else { Color::Green };
+                    let header_style = Style::default().fg(author_color);
+                    let time_style = Style::default().fg(Color::DarkGray);
+
                     let status_indicator = match m.status {
                         models::MessageStatus::Sending => " [...]",
                         models::MessageStatus::Failed => " [❌]",
                         models::MessageStatus::Delivered => "",
                     };
-                    ratatui::widgets::ListItem::new(format!(
-                        "[{}] <{}>: {}{}",
-                        m.timestamp, m.author, m.content, status_indicator
-                    ))
+
+                    // MATCHED UI: Name, colored timestamp, and performance ms metrics side-by-side
+                    let header_line = Line::from(vec![
+                        Span::styled(format!("{}", m.author), header_style),
+                        Span::raw(" "),
+                        Span::styled(format!("[{}{}]", m.timestamp, status_indicator), time_style),
+                    ]);
+
+                    let content_line = Line::from(vec![
+                        Span::raw(format!("  {}", m.content))
+                    ]);
+
+                    ratatui::widgets::ListItem::new(vec![header_line, content_line])
                 }).collect();
 
                 let msg_list = ratatui::widgets::List::new(msgs)
-                    .block(ratatui::widgets::Block::default()
-                        .borders(ratatui::widgets::Borders::ALL)
-                        .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
+                    .block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::NONE));
                 
                 f.render_widget(msg_list, chunks[0]);
 
-                let input_box = ratatui::widgets::Paragraph::new(state.input_text.as_str())
-                    .block(ratatui::widgets::Block::default()
-                        .borders(ratatui::widgets::Borders::ALL)
-                        .title(" Type Chat Message (Press Enter to Send) "));
-                
-                f.render_widget(input_box, chunks[1]);
+                // Render Dynamic Typing Information Bar
+                let current_time = std::time::Instant::now();
+                let typing_names: Vec<String> = state.typing_users
+                    .iter()
+                    .filter_map(|(name, inst)| {
+                        if current_time.duration_since(*inst).as_secs() < 6 && name != "You" {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let typing_text = if typing_names.is_empty() {
+                    "".to_string()
+                } else if typing_names.len() == 1 {
+                    format!("💬 {} is typing...", typing_names[0])
+                } else {
+                    "💬 Multiple users are typing...".to_string()
+                };
+
+                let typing_bar = ratatui::widgets::Paragraph::new(typing_text)
+                    .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
+                f.render_widget(typing_bar, chunks[1]);
+
+                // MATCHED UI: Plain text line input template with a simple marker arrow
+                let input_str = format!("> {}", state.input_text);
+                let input_box = ratatui::widgets::Paragraph::new(input_str);
+                f.render_widget(input_box, chunks[2]);
             }
         })?;
 
