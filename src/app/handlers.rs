@@ -37,7 +37,7 @@ impl crate::app::state::AppState {
             AppEvent::Terminal(Event::Key(k)) if k.kind == crossterm::event::KeyEventKind::Press => {
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) { return true; }
                 
-                // 🟢 RESTORED: Notifies Discord's backend API that YOU are currently typing
+                // Notifies Discord's backend API that YOU are currently typing
                 self.trigger_outbound_typing(client);
 
                 match k.code {
@@ -47,12 +47,13 @@ impl crate::app::state::AppState {
                     _ => {}
                 }
             }
+            // FIXED: Added the catch-all arm to safely ignore unhandled window focus/mouse adjustments
+            _ => {}
         }
         false
     }
 
     fn trigger_outbound_typing(&mut self, client: &reqwest::Client) {
-        // Debounce protection: Only fires once every 4 seconds to protect your account from rate limits
         static mut LAST_TYPING_TIME: Option<std::time::Instant> = None;
         unsafe {
             if let Some(last) = LAST_TYPING_TIME {
