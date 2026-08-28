@@ -9,7 +9,6 @@ pub struct AppState {
 }
 
 impl AppState {
-    // FIXED: Added the required initialization method for main.rs
     pub fn new(token: String) -> Self {
         Self {
             token,
