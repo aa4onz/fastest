@@ -11,13 +11,7 @@ impl crate::app::state::AppState {
                 if m.nonce.starts_with("err-") {
                     self.messages.push(m);
                 } else if !self.messages.iter().any(|x| x.nonce == m.nonce && !m.nonce.is_empty()) {
-                    self.typing_users.remove(&m.author);
                     self.messages.push(m);
-                }
-            }
-            AppEvent::UserTyping { username, channel_id } => {
-                if channel_id == self.target_channel_id {
-                    self.typing_users.insert(username, std::time::Instant::now());
                 }
             }
             AppEvent::MessageSent { nonce, timestamp } => {
@@ -43,6 +37,7 @@ impl crate::app::state::AppState {
             AppEvent::Terminal(Event::Key(k)) if k.kind == crossterm::event::KeyEventKind::Press => {
                 if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) { return true; }
                 
+                // 🟢 RESTORED: Notifies Discord's backend API that YOU are currently typing
                 self.trigger_outbound_typing(client);
 
                 match k.code {
@@ -52,12 +47,12 @@ impl crate::app::state::AppState {
                     _ => {}
                 }
             }
-            _ => {}
         }
         false
     }
 
     fn trigger_outbound_typing(&mut self, client: &reqwest::Client) {
+        // Debounce protection: Only fires once every 4 seconds to protect your account from rate limits
         static mut LAST_TYPING_TIME: Option<std::time::Instant> = None;
         unsafe {
             if let Some(last) = LAST_TYPING_TIME {
