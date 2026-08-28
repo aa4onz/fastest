@@ -68,8 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         terminal.draw(|f| {
             let screen_size = f.size();
             
-            // 🟢 STEP 1: HORIZONTAL SPLITTER FOR MIDDLE SIDE PADDING
-            // Splits your terminal screen widthwise: [Left Gutter (15%)] [Middle Content (70%)] [Right Gutter (15%)]
             let horizontal_chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Horizontal)
                 .constraints([
@@ -79,21 +77,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ])
                 .split(screen_size);
 
-            let middle_area = horizontal_chunks[1]; // Restricts drawing area strictly to the middle block slice
+            let middle_area = horizontal_chunks[1];
 
-            // 🟢 STEP 2: VERTICAL SPLITTER FOR CHAT AND TEXTBOX PANES
-            // Splits the middle content area vertically: [Messages (Min 3)] [Typing Lane (1)] [TextBox Input (3)]
             let vertical_chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
-                    ratatui::layout::Constraint::Min(3),    // Pane A: Chat feed list box
-                    ratatui::layout::Constraint::Length(1),  // Pane B: Typing lane placed strictly BETWEEN textbox and chat
-                    ratatui::layout::Constraint::Length(3),  // Pane C: Plain bordered input container box
+                    ratatui::layout::Constraint::Min(3),
+                    ratatui::layout::Constraint::Length(3), 
                 ])
                 .split(middle_area);
 
             if let Ok(mut state) = app_state_clone.try_lock() {
-                // Compile chat list item card objects
                 let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
                     use ratatui::style::{Color, Style};
                     use ratatui::text::{Line, Span};
@@ -101,7 +95,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let is_me = m.author == "You";
                     let author_color = if is_me { Color::Blue } else { Color::Green };
                     let header_style = Style::default().fg(author_color);
-                    let time_style = Style::default().fg(Color::DarkGray);
 
                     let status_indicator = match m.status {
                         models::MessageStatus::Sending => " [...]",
@@ -109,10 +102,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         models::MessageStatus::Delivered => "",
                     };
 
+                    // MATCHED UI: Timestamp brackets style now matches the username color palette perfectly
                     let header_line = Line::from(vec![
                         Span::styled(format!("{}", m.author), header_style),
                         Span::raw(" "),
-                        Span::styled(format!("[{} {}]", m.timestamp, status_indicator), time_style),
+                        Span::styled(format!("[{} {}]", m.timestamp, status_indicator), header_style),
                     ]);
 
                     let content_line = Line::from(vec![
@@ -122,7 +116,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ratatui::widgets::ListItem::new(vec![header_line, content_line])
                 }).collect();
 
-                // 🟢 UI UPDATED: Swapped title string parameter to read "messages" instead of Locked Channel ID
                 let msg_list = ratatui::widgets::List::new(msgs)
                     .block(ratatui::widgets::Block::default()
                         .borders(ratatui::widgets::Borders::ALL)
@@ -130,39 +123,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 f.render_stateful_widget(msg_list, vertical_chunks[0], &mut state.list_state);
 
-                // Compute dynamic typing text block
-                let current_time = std::time::Instant::now();
-                let typing_names: Vec<String> = state.typing_users
-                    .iter()
-                    .filter_map(|(name, inst)| {
-                        if current_time.duration_since(*inst).as_secs() < 6 && name != "You" {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                // MATCHED UI: Prompt prefix is normal white/gray but input text string is forced to dark gray before sending
+                let prompt_span = ratatui::text::Span::raw("> ");
+                let text_span = ratatui::text::Span::styled(
+                    state.input_text.as_str(),
+                    ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray)
+                );
+                let input_line = ratatui::text::Line::from(vec![prompt_span, text_span]);
 
-                let typing_text = if typing_names.is_empty() {
-                    "".to_string()
-                } else if typing_names.len() == 1 {
-                    format!(" 💬 {} is typing...", typing_names[0])
-                } else {
-                    " 💬 Multiple users are typing...".to_string()
-                };
-
-                // 🟢 UI UPDATED: Renders typing indicator text line strictly inside the central vertical chunk spacing gap
-                let typing_bar = ratatui::widgets::Paragraph::new(typing_text)
-                    .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
-                f.render_widget(typing_bar, vertical_chunks[1]);
-
-                // 🟢 UI UPDATED: Wiped out "Type Chat Message" title label header entirely for a clean aesthetic look
-                let input_str = format!("> {}", state.input_text);
-                let input_box = ratatui::widgets::Paragraph::new(input_str)
+                let input_box = ratatui::widgets::Paragraph::new(input_line)
                     .block(ratatui::widgets::Block::default()
                         .borders(ratatui::widgets::Borders::ALL));
                 
-                f.render_widget(input_box, vertical_chunks[2]);
+                f.render_widget(input_box, vertical_chunks[1]);
             }
         })?;
 
