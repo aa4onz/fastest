@@ -66,19 +66,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         terminal.draw(|f| {
-            let size = f.size();
+            let screen_size = f.size();
             
-            // 🟢 FIXED CONSTRAINT REGIONS: Split layout cleanly with explicit border boundaries
-            let chunks = ratatui::layout::Layout::default()
+            // 🟢 STEP 1: HORIZONTAL SPLITTER FOR MIDDLE SIDE PADDING
+            // Splits your terminal screen widthwise: [Left Gutter (15%)] [Middle Content (70%)] [Right Gutter (15%)]
+            let horizontal_chunks = ratatui::layout::Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal)
+                .constraints([
+                    ratatui::layout::Constraint::Percentage(15),
+                    ratatui::layout::Constraint::Percentage(70),
+                    ratatui::layout::Constraint::Percentage(15),
+                ])
+                .split(screen_size);
+
+            let middle_area = horizontal_chunks[1]; // Restricts drawing area strictly to the middle block slice
+
+            // 🟢 STEP 2: VERTICAL SPLITTER FOR CHAT AND TEXTBOX PANES
+            // Splits the middle content area vertically: [Messages (Min 3)] [Typing Lane (1)] [TextBox Input (3)]
+            let vertical_chunks = ratatui::layout::Layout::default()
                 .direction(ratatui::layout::Direction::Vertical)
                 .constraints([
-                    ratatui::layout::Constraint::Min(3),    // Pane A: Chat feed logs window
-                    ratatui::layout::Constraint::Length(3),  // Pane B: Heavy Bordered input box container field
+                    ratatui::layout::Constraint::Min(3),    // Pane A: Chat feed list box
+                    ratatui::layout::Constraint::Length(1),  // Pane B: Typing lane placed strictly BETWEEN textbox and chat
+                    ratatui::layout::Constraint::Length(3),  // Pane C: Plain bordered input container box
                 ])
-                .split(size);
+                .split(middle_area);
 
             if let Ok(mut state) = app_state_clone.try_lock() {
-                // 1. Map messages list items with color highlights
+                // Compile chat list item card objects
                 let msgs: Vec<ratatui::widgets::ListItem> = state.messages.iter().map(|m| {
                     use ratatui::style::{Color, Style};
                     use ratatui::text::{Line, Span};
@@ -107,15 +122,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ratatui::widgets::ListItem::new(vec![header_line, content_line])
                 }).collect();
 
-                // 🟢 ADDED BORDERS: Created a solid border wrapper frame around the chat viewport area
+                // 🟢 UI UPDATED: Swapped title string parameter to read "messages" instead of Locked Channel ID
                 let msg_list = ratatui::widgets::List::new(msgs)
                     .block(ratatui::widgets::Block::default()
                         .borders(ratatui::widgets::Borders::ALL)
-                        .title(format!(" Locked Channel ID: {} ", state.target_channel_id)));
+                        .title(" messages "));
                 
-                f.render_stateful_widget(msg_list, chunks[0], &mut state.list_state);
+                f.render_stateful_widget(msg_list, vertical_chunks[0], &mut state.list_state);
 
-                // 2. Compute dynamic multi-user typing status strings
+                // Compute dynamic typing text block
                 let current_time = std::time::Instant::now();
                 let typing_names: Vec<String> = state.typing_users
                     .iter()
@@ -128,25 +143,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .collect();
 
-                // 🟢 TYPING EMBED POSITION: Create a compact tracking flag header block
-                let typing_prefix = if typing_names.is_empty() {
+                let typing_text = if typing_names.is_empty() {
                     "".to_string()
                 } else if typing_names.len() == 1 {
-                    format!("(💬 {} typing...) ", typing_names[0])
+                    format!(" 💬 {} is typing...", typing_names[0])
                 } else {
-                    "(💬 Users typing...) ".to_string()
+                    " 💬 Multiple users are typing...".to_string()
                 };
 
-                // 🟢 OVERLAP PREVENTION: Merge typing indicator and prompt directly side-by-side
-                let input_str = format!("{}> {}", typing_prefix, state.input_text);
-                
-                // 🟢 ADDED BORDERS: Creates a matching dedicated structural boundary pane around text entry lanes
+                // 🟢 UI UPDATED: Renders typing indicator text line strictly inside the central vertical chunk spacing gap
+                let typing_bar = ratatui::widgets::Paragraph::new(typing_text)
+                    .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
+                f.render_widget(typing_bar, vertical_chunks[1]);
+
+                // 🟢 UI UPDATED: Wiped out "Type Chat Message" title label header entirely for a clean aesthetic look
+                let input_str = format!("> {}", state.input_text);
                 let input_box = ratatui::widgets::Paragraph::new(input_str)
                     .block(ratatui::widgets::Block::default()
-                        .borders(ratatui::widgets::Borders::ALL)
-                        .title(" Type Chat Message (Press Enter to Send) "));
+                        .borders(ratatui::widgets::Borders::ALL));
                 
-                f.render_widget(input_box, chunks[1]);
+                f.render_widget(input_box, vertical_chunks[2]);
             }
         })?;
 
@@ -157,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    crossterm::terminal::enable_raw_mode()?;
+    crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(terminal.backend_mut(), crossterm::terminal::LeaveAlternateScreen, crossterm::cursor::Show)?;
     Ok(())
 }
