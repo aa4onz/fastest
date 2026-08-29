@@ -47,7 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
-        .pool_max_idle_per_host(10)
+        .pool_max_idle_per_host(1)
+        .pool_idle_timeout(std::time::Duration::from_secs(120))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .build()
         .unwrap();
@@ -96,7 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let author_color = if is_me { Color::Blue } else { Color::Green };
                     let header_style = Style::default().fg(author_color);
 
-                    // 🟢 FIXED: Chat content stays Gray color while Sending, turns White when Delivered
                     let content_color = match m.status {
                         models::MessageStatus::Sending => Color::DarkGray,
                         models::MessageStatus::Failed => Color::Red,
@@ -129,7 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 
                 f.render_stateful_widget(msg_list, vertical_chunks[0], &mut state.list_state);
 
-                // 🟢 FIXED: Active Textbox content is now styled in bright Yellow color for sharp focus
                 let prompt_span = ratatui::text::Span::raw("> ");
                 let text_span = ratatui::text::Span::styled(
                     state.input_text.as_str(),
