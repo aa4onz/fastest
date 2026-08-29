@@ -31,7 +31,6 @@ impl crate::app::state::AppState {
                 }
             }
             AppEvent::MessageFailed { nonce } => {
-                // FIXED LOOKUP: Securely locate message using the locked nonce handle index code
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Failed;
                 }
@@ -77,7 +76,7 @@ impl crate::app::state::AppState {
     fn retry_chat(&mut self, nonce: &str, tx: &Sender<AppEvent>, client: &reqwest::Client) {
         let (text, found) = if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
             m.status = MessageStatus::Sending;
-            m.timestamp = format!("{} | ...", Local::now().format("%H:%M:%S")); // Reset display to loading status
+            m.timestamp = format!("{} | ...", Local::now().format("%H:%M:%S"));
             (m.content.clone(), true)
         } else {
             (String::new(), false)
@@ -94,10 +93,12 @@ impl crate::app::state::AppState {
 
         tokio::spawn(async move {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
-            let p = crate::models::MessagePayload {
-                content: text,
-                nonce: nonce_clone.clone(),
-            };
+            
+            let raw_body = [
+                b"{\"content\":\"", text.as_bytes(), 
+                b"\",\"nonce\":\"", nonce_clone.as_bytes(), 
+                b"\"}"
+            ].concat();
 
             let res = c
                 .post(&url)
@@ -106,7 +107,7 @@ impl crate::app::state::AppState {
                 .header("Accept", "*/*")
                 .header("Origin", "https://discord.com")
                 .header("X-Discord-Locale", "en-US")
-                .json(&p)
+                .body(raw_body)
                 .send()
                 .await;
 
@@ -147,7 +148,6 @@ impl crate::app::state::AppState {
                         parsed_err.trim()
                     );
 
-                    // FIXED STATE DISPATCH: Injects the locked tracking nonce so state tracking memory remains perfectly preserved
                     let _ = tx
                         .send(AppEvent::MessageSent {
                             nonce: nonce_clone.clone(),
@@ -185,10 +185,12 @@ impl crate::app::state::AppState {
         let (token, c, tx) = (self.token.clone(), client.clone(), tx.clone());
         tokio::spawn(async move {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
-            let p = crate::models::MessagePayload {
-                content: text,
-                nonce: nonce.clone(),
-            };
+            
+            let raw_body = [
+                b"{\"content\":\"", text.as_bytes(), 
+                b"\",\"nonce\":\"", nonce.as_bytes(), 
+                b"\"}"
+            ].concat();
 
             let res = c
                 .post(&url)
@@ -197,7 +199,7 @@ impl crate::app::state::AppState {
                 .header("Accept", "*/*")
                 .header("Origin", "https://discord.com")
                 .header("X-Discord-Locale", "en-US")
-                .json(&p)
+                .body(raw_body)
                 .send()
                 .await;
 
@@ -238,7 +240,6 @@ impl crate::app::state::AppState {
                         parsed_err.trim()
                     );
 
-                    // FIXED STATE DISPATCH: Injects the locked tracking nonce so state tracking memory remains perfectly preserved
                     let _ = tx
                         .send(AppEvent::MessageSent {
                             nonce: nonce.clone(),
