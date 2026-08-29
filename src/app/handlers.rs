@@ -26,7 +26,24 @@ impl crate::app::state::AppState {
             AppEvent::MessageSent { nonce, timestamp } => {
                 if let Some(m) = self.messages.iter_mut().find(|x| x.nonce == nonce) {
                     m.status = MessageStatus::Delivered;
-                    m.timestamp = timestamp;
+                    
+                    // TOTAL-TOTAL LATENCY CALCULATOR: Extracts the original keystroke timestamp
+                    if let Some(stripped_nonce) = nonce.strip_prefix("n-") {
+                        if let Ok(creation_nanos) = stripped_nonce.parse::<i64>() {
+                            let current_nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+                            let total_absolute_diff_ms = (current_nanos - creation_nanos) / 1_000_000;
+                            
+                            // Displays your absolute true real-world lag covering the entire global trip
+                            m.timestamp = format!(
+                                "{} | Total True {}ms",
+                                Local::now().format("%H:%M:%S"),
+                                total_absolute_diff_ms
+                            );
+                        }
+                    } else {
+                        m.timestamp = timestamp;
+                    }
+                    
                     self.failed_nonces.retain(|x| x != &nonce);
                 }
             }
@@ -89,7 +106,6 @@ impl crate::app::state::AppState {
         let cid = self.target_channel_id.clone();
         let nonce_clone = nonce.to_string();
         let (token, c, tx) = (self.token.clone(), client.clone(), tx.clone());
-        let start_time = std::time::Instant::now();
 
         tokio::spawn(async move {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
@@ -114,16 +130,10 @@ impl crate::app::state::AppState {
             if let Ok(resp) = res {
                 let status = resp.status();
                 if status.is_success() {
-                    let duration = start_time.elapsed().as_millis();
-                    let combined_time_string = format!(
-                        "{} | Sent in {}ms",
-                        Local::now().format("%H:%M:%S"),
-                        duration
-                    );
                     let _ = tx
                         .send(AppEvent::MessageSent {
                             nonce: nonce_clone,
-                            timestamp: combined_time_string,
+                            timestamp: String::new(),
                         })
                         .await;
                     return;
@@ -169,9 +179,9 @@ impl crate::app::state::AppState {
     fn send_chat(&mut self, tx: &Sender<AppEvent>, client: &reqwest::Client) {
         let text = std::mem::take(&mut self.input_text);
         let cid = self.target_channel_id.clone();
-        let nonce = format!("n-{}", Local::now().timestamp_nanos_opt().unwrap_or(0));
-
-        let start_time = std::time::Instant::now();
+        
+        // CRUCIAL: Encodes the exact UTC nanosecond clock data directly into the message tracking string
+        let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let current_time_str = Local::now().format("%H:%M:%S").to_string();
 
         self.messages.push(DiscordMessage {
@@ -206,16 +216,10 @@ impl crate::app::state::AppState {
             if let Ok(resp) = res {
                 let status = resp.status();
                 if status.is_success() {
-                    let duration = start_time.elapsed().as_millis();
-                    let combined_time_string = format!(
-                        "{} | Sent in {}ms",
-                        Local::now().format("%H:%M:%S"),
-                        duration
-                    );
                     let _ = tx
                         .send(AppEvent::MessageSent {
                             nonce,
-                            timestamp: combined_time_string,
+                            timestamp: String::new(),
                         })
                         .await;
                     return;
