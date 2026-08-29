@@ -8,6 +8,7 @@ pub struct AppState {
     pub messages: Vec<DiscordMessage>,
     pub input_text: String,
     pub list_state: ListState,
+    pub failed_nonces: Vec<String>, // 🟢 ADDED: Remembers failed message IDs for instant retries
 }
 
 impl AppState {
@@ -21,6 +22,7 @@ impl AppState {
             messages: Vec::new(),
             input_text: String::new(),
             list_state,
+            failed_nonces: Vec::new(), // 🟢 INITIALIZED
         }
     }
 }
