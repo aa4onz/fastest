@@ -16,7 +16,12 @@ pub struct DiscordMessage {
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     IncomingMessage(DiscordMessage),
-    MessageSent { nonce: String, timestamp: String },
+    // 🟢 UPDATED: Added enter_click_time to track the exact millisecond you press Enter
+    MessageSent { 
+        nonce: String, 
+        timestamp: String, 
+        enter_click_time: std::time::Instant 
+    },
     MessageFailed { nonce: String },
     Terminal(crossterm::event::Event),
     GatewayClosed,
