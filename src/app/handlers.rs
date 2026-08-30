@@ -175,15 +175,17 @@ impl crate::app::state::AppState {
                     return;
                 } else {
                     let raw_err = resp.text().await.unwrap_or_else(|_| "Rejected".to_string());
-                    let parsed_err = if let Some(idx) = raw_err.find("message":") {
+                    let parsed_err = if let Some(idx) = raw_err.find("message\":") {
                         raw_err[idx + 9..]
                             .chars()
+                            //.filter(|c| *c != '"' && *c != '}' && *c != '{')
                             .filter(|c| *c != '"' && *c != '}' && *c != '{')
                             .take(80)
                             .collect::<String>()
                     } else {
                         raw_err
                             .chars()
+                            //.filter(|c| !c.is_control() && *c != '{' && *c != '}' && *c != '"')
                             .filter(|c| !c.is_control() && *c != '{' && *c != '}' && *c != '"')
                             .take(80)
                             .collect::<String>()
@@ -261,15 +263,17 @@ impl crate::app::state::AppState {
                     return;
                 } else {
                     let raw_err = resp.text().await.unwrap_or_else(|_| "Rejected".to_string());
-                    let parsed_err = if let Some(idx) = raw_err.find("message":") {
+                    let parsed_err = if let Some(idx) = raw_err.find("message\":") {
                         raw_err[idx + 9..]
                             .chars()
+                            //.filter(|c| *c != '"' && *c != '}' && *c != '{')
                             .filter(|c| *c != '"' && *c != '}' && *c != '{')
                             .take(80)
                             .collect::<String>()
                     } else {
                         raw_err
                             .chars()
+                            //.filter(|c| !c.is_control() && *c != '{' && *c != '}' && *c != '"')
                             .filter(|c| !c.is_control() && *c != '{' && *c != '}' && *c != '"')
                             .take(80)
                             .collect::<String>()
