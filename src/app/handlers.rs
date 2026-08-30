@@ -146,11 +146,13 @@ impl crate::app::state::AppState {
         tokio::spawn(async move {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             
+            
             let raw_body = [
-                b"{"content":"", text.as_bytes(), 
-                b"","nonce":"", nonce_clone.as_bytes(), 
-                b""}"
+                b"{\"content\":\"", text.as_bytes(), 
+                b"\",\"nonce\":\"", nonce_clone.as_bytes(), 
+                b"\"}"
             ].concat();
+
 
             let res = c
                 .post(&url)
@@ -235,11 +237,10 @@ impl crate::app::state::AppState {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             
             let raw_body = [
-                b"{"content":"", text.as_bytes(), 
-                b"","nonce":"", nonce.as_bytes(), 
-                b""}"
+                b"{\"content\":\"", text.as_bytes(), 
+                b"\",\"nonce\":\"", nonce.as_bytes(), 
+                b"\"}"
             ].concat();
-
             let res = c
                 .post(&url)
                 .header("Authorization", &token)
