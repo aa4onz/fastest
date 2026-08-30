@@ -1,4 +1,3 @@
-// src/app/handlers.rs
 use crate::models::{AppEvent, DiscordMessage, MessageStatus};
 use chrono::Local;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
@@ -77,17 +76,54 @@ impl crate::app::state::AppState {
                             self.retry_chat(&last_failed_nonce, tx, client);
                         }
                     }
-                    KeyCode::Char(c) => self.input_text.push(c),
+                    KeyCode::Char(c) => {
+                        self.input_text.push(c);
+                        self.trigger_typing_indicator(client);
+                    }
                     KeyCode::Backspace => {
                         self.input_text.pop();
+                        self.trigger_typing_indicator(client);
                     }
-                    KeyCode::Enter if !self.input_text.is_empty() => self.send_chat(tx, client),
+                    KeyCode::Enter if !self.input_text.is_empty() => {
+                        // Reset typing indicator immediately so next typing session triggers instantly
+                        self.last_typing_sent = None;
+                        self.send_chat(tx, client);
+                    }
                     _ => {}
                 }
             }
             _ => {}
         }
         false
+    }
+
+    fn trigger_typing_indicator(&mut self, client: &reqwest::Client) {
+        if self.target_channel_id.is_empty() {
+            return;
+        }
+
+        // Throttle indicator requests to once every 7 seconds
+        if let Some(last_sent) = self.last_typing_sent {
+            if last_sent.elapsed() < std::time::Duration::from_secs(7) {
+                return;
+            }
+        }
+
+        self.last_typing_sent = Some(std::time::Instant::now());
+
+        let cid = self.target_channel_id.clone();
+        let token = self.token.clone();
+        let c = client.clone();
+
+        tokio::spawn(async move {
+            let url = format!("https://discord.com/api/v10/channels/{}/typing", cid);
+            let _ = c
+                .post(&url)
+                .header("Authorization", &token)
+                .header("Content-Length", "0")
+                .send()
+                .await;
+        });
     }
 
     fn retry_chat(&mut self, nonce: &str, tx: &Sender<AppEvent>, client: &reqwest::Client) {
@@ -111,9 +147,9 @@ impl crate::app::state::AppState {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             
             let raw_body = [
-                b"{\"content\":\"", text.as_bytes(), 
-                b"\",\"nonce\":\"", nonce_clone.as_bytes(), 
-                b"\"}"
+                b"{"content":"", text.as_bytes(), 
+                b"","nonce":"", nonce_clone.as_bytes(), 
+                b""}"
             ].concat();
 
             let res = c
@@ -139,7 +175,7 @@ impl crate::app::state::AppState {
                     return;
                 } else {
                     let raw_err = resp.text().await.unwrap_or_else(|_| "Rejected".to_string());
-                    let parsed_err = if let Some(idx) = raw_err.find("message\":") {
+                    let parsed_err = if let Some(idx) = raw_err.find("message":") {
                         raw_err[idx + 9..]
                             .chars()
                             .filter(|c| *c != '"' && *c != '}' && *c != '{')
@@ -197,9 +233,9 @@ impl crate::app::state::AppState {
             let url = format!("https://discord.com/api/v10/channels/{}/messages", cid);
             
             let raw_body = [
-                b"{\"content\":\"", text.as_bytes(), 
-                b"\",\"nonce\":\"", nonce.as_bytes(), 
-                b"\"}"
+                b"{"content":"", text.as_bytes(), 
+                b"","nonce":"", nonce.as_bytes(), 
+                b""}"
             ].concat();
 
             let res = c
@@ -225,7 +261,7 @@ impl crate::app::state::AppState {
                     return;
                 } else {
                     let raw_err = resp.text().await.unwrap_or_else(|_| "Rejected".to_string());
-                    let parsed_err = if let Some(idx) = raw_err.find("message\":") {
+                    let parsed_err = if let Some(idx) = raw_err.find("message":") {
                         raw_err[idx + 9..]
                             .chars()
                             .filter(|c| *c != '"' && *c != '}' && *c != '{')
