@@ -1,4 +1,4 @@
-// src/main.rs
+// src/main.rs - PART 1
 pub mod models;
 pub mod network;
 pub mod app;
@@ -13,6 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut token = String::new();
     let mut url_input = String::new();
 
+    // Load or request the Discord user token safely from local cache file systems
     if std::path::Path::new(".token_cache").exists() {
         token = std::fs::read_to_string(".token_cache")?.trim().to_string();
     } else {
@@ -34,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Initialize raw terminal modes and enter Crossterm alternative window view buffers
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::queue!(stdout, crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
@@ -44,17 +46,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     initial_state.target_channel_id = target_channel_id.clone();
     let app_state = Arc::new(Mutex::new(initial_state));
 
+    // Core communication channels: event_rx handles ui, net_rx passes to your network worker module
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(100);
+    let (net_tx, net_rx) = mpsc::channel::<AppEvent>(50); 
+    
+    // Persistent HTTP pool connection engine optimization settings
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)
-        .pool_max_idle_per_host(1)
+        .pool_max_idle_per_host(5)
         .pool_idle_timeout(std::time::Duration::from_secs(120))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .build()
         .unwrap();
 
-    network::spawn_network_handlers(Arc::clone(&app_state), event_tx.clone(), http_client.clone());
-
+    // Boots the background handlers inside the network folder ecosystem ecosystem
+    network::spawn_network_handlers(Arc::clone(&app_state), event_tx.clone(), http_client.clone(), net_rx);
+// src/main.rs - PART 2
     loop {
         let app_state_clone = Arc::clone(&app_state);
         
@@ -145,12 +152,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
 
         if let Some(event) = event_rx.recv().await {
-            let mut state = app_state.lock().await;
-            let should_exit = state.handle_event(event, &event_tx, &http_client).await;
-            if should_exit { break; }
+            match event {
+                // Instantly routes outgoing HTTP network calls out of your UI rendering loop thread
+                AppEvent::HttpTriggerTyping | AppEvent::HttpSendChat { .. } => {
+                    let _ = net_tx.send(event).await;
+                }
+                _ => {
+                    let mut state = app_state.lock().await;
+                    let should_exit = state.handle_event(event, &event_tx).await;
+                    if should_exit { break; }
+                }
+            }
         }
     }
 
+    // Clean terminal workspace state rollback upon user exiting application loop environments
     crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(terminal.backend_mut(), crossterm::terminal::LeaveAlternateScreen, crossterm::cursor::Show)?;
     Ok(())
