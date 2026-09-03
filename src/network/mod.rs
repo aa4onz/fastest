@@ -6,7 +6,6 @@ use crate::app::state::AppState;
 use crate::models::AppEvent;
 use crate::network::http::DiscordHttpClient;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{mpsc, mpsc::Sender, Mutex};
 
 pub fn spawn_network_handlers(
@@ -17,20 +16,20 @@ pub fn spawn_network_handlers(
 ) {
     // Get token and channel ID safely out of current state structure initialization
     let (token, target_channel_id) = {
-        // Block to unlock state instantly
         let state = app_state.try_lock().expect("Failed to lock state at initialization");
         (state.token.clone(), state.target_channel_id.clone())
     };
 
     let client_wrapper = DiscordHttpClient::new(http_client.clone(), token);
 
-    // 1. Asynchronously poll Crossterm terminal input key events
+    // 1. ⚡ ULTRA-FAST INSTANT CROSSTERM KEY CAPTURE (NO POLLING TIMEOUT LAG)
     let input_tx = event_tx.clone();
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         loop {
-            if let Ok(true) = crossterm::event::poll(Duration::from_millis(50)) {
-                if let Ok(ev) = crossterm::event::read() {
-                    let _ = input_tx.send(AppEvent::Terminal(ev)).await;
+            // Block on raw OS key reads. Executes the exact microsecond your finger registers input.
+            if let Ok(ev) = crossterm::event::read() {
+                if let Err(_) = input_tx.blocking_send(AppEvent::Terminal(ev)) {
+                    break; // Event loop shut down, exit thread
                 }
             }
         }
@@ -40,7 +39,6 @@ pub fn spawn_network_handlers(
     tokio::spawn(gateway::run_gateway_loop(Arc::clone(&app_state), event_tx.clone()));
 
     // 3. ⚡ EXCLUSIVE ASYNC OUTBOUND HTTP WORKER
-    // Runs inside the network folder ecosystem. Listens to net_rx queue.
     let worker_tx = event_tx.clone();
     let mut outbound_rx = net_rx;
     
