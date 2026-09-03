@@ -38,7 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize raw terminal modes and enter Crossterm alternative window view buffers
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    crossterm::queue!(stdout, crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    
+    // ⚡ FIX HERE: Removed crossterm::cursor::Hide so the cursor can render instantly
+    crossterm::queue!(stdout, crossterm::terminal::EnterAlternateScreen)?; 
+    
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
@@ -68,9 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 🚀 ULTRA-OPTIMIZED TRANSPORT STREAM ENGINE 
     let http_client = reqwest::Client::builder()
-        .tcp_nodelay(true)               // Instantly dumps network buffers without bundling delays
-        .pool_max_idle_per_host(1)       // Pins connection to ONE permanent fast warm socket in US-East
-        .pool_idle_timeout(None)         // Never tears down your physical fiber pipeline to Discord
+        .tcp_nodelay(true)               
+        .pool_max_idle_per_host(1)       
+        .pool_idle_timeout(None)         
         .default_headers(headers)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
         .build()
@@ -78,8 +81,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Boots the background handlers inside the network folder ecosystem
     network::spawn_network_handlers(Arc::clone(&app_state), event_tx.clone(), http_client.clone(), net_rx);
-
-
 // src/main.rs - PART 2
     // Draw the interface layout exactly once when the program boots up
     let app_state_clone = Arc::clone(&app_state);
@@ -119,6 +120,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let input_box = ratatui::widgets::Paragraph::new("> ")
                 .block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::ALL));
             f.render_widget(input_box, vertical_chunks[1]);
+            
+            // ⚡ FIX HERE (Initial Render): Snaps text cursor instantly to the input prompt area
+            f.set_cursor(vertical_chunks[1].x + 3, vertical_chunks[1].y + 1);
         }
     })?;
 
@@ -222,6 +226,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .borders(ratatui::widgets::Borders::ALL));
                 
                 f.render_widget(input_box, vertical_chunks[1]);
+
+                // ⚡ FIX HERE (Repaint Loop): Forces layout engines to place the blinking active text marker 
+                // exactly at the end of what you have manually typed so far
+                f.set_cursor(
+                    vertical_chunks[1].x + 3 + state.input_text.chars().count() as u16,
+                    vertical_chunks[1].y + 1,
+                );
             }
         })?;
     }
