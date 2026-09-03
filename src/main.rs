@@ -69,7 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 🚀 ULTRA-OPTIMIZED TRANSPORT STREAM ENGINE 
     let http_client = reqwest::Client::builder()
         .tcp_nodelay(true)               // Instantly dumps network buffers without bundling delays
-        .prefer_http2()                  // Forces continuous multiplexed messaging channel mapping
         .pool_max_idle_per_host(1)       // Pins connection to ONE permanent fast warm socket in US-East
         .pool_idle_timeout(None)         // Never tears down your physical fiber pipeline to Discord
         .default_headers(headers)
@@ -79,6 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Boots the background handlers inside the network folder ecosystem
     network::spawn_network_handlers(Arc::clone(&app_state), event_tx.clone(), http_client.clone(), net_rx);
+
+
 // src/main.rs - PART 2
     // Draw the interface layout exactly once when the program boots up
     let app_state_clone = Arc::clone(&app_state);
