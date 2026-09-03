@@ -29,7 +29,8 @@ impl crate::app::state::AppState {
                     // TOTAL-TOTAL LATENCY CALCULATOR: Extracts the original keystroke timestamp
                     if let Some(stripped_nonce) = nonce.strip_prefix("n-") {
                         if let Ok(creation_nanos) = stripped_nonce.parse::<i64>() {
-                            let current_nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+                            // Grabs the current real-world timestamp cleanly
+                            let current_nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000);
                             let total_absolute_diff_ms = (current_nanos - creation_nanos) / 1_000_000;
                             
                             // Displays your absolute true real-world lag covering the entire global trip
@@ -109,7 +110,10 @@ impl crate::app::state::AppState {
                     KeyCode::Enter if !self.input_text.is_empty() => {
                         self.last_typing_sent = None;
                         let text = std::mem::take(&mut self.input_text);
-                        let nonce = format!("n-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+                        
+                        // Inject precision nanosecond timestamps into the message identifier string
+                        let current_nanos = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000);
+                        let nonce = format!("n-{}", current_nanos);
                         let current_time_str = Local::now().format("%H:%M:%S").to_string();
 
                         self.messages.push(DiscordMessage {
